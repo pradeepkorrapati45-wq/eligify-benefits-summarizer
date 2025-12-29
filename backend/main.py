@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from openai import OpenAI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 import pdfplumber
@@ -17,23 +17,21 @@ load_dotenv()
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-app = FastAPI()
+app = FastAPI(title="Eligify API", version="1.0.0")
 
+# CORS - Allow all origins for demo (restrict in production)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:8000",
-        "https://eligify.vercel.app",
-        "https://your-custom-domain.com"
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Serve static files
-app.mount("/static", StaticFiles(directory="../frontend"), name="static")
+# Serve static files - works for both local dev and production
+FRONTEND_DIR = "../frontend" if os.path.exists("../frontend") else "./frontend"
+if os.path.exists(FRONTEND_DIR):
+    app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 
 # ============================================
@@ -60,19 +58,19 @@ class BenefitsSummary(BaseModel):
 
 
 class TreatmentProcedure(BaseModel):
-    code: str  # e.g., "D2740"
-    description: str  # e.g., "Crown - Porcelain/Ceramic"
-    fee: float  # Dentist's fee
-    category: str  # "preventive", "basic", "major"
+    code: str
+    description: str
+    fee: float
+    category: str
 
 
 class TreatmentCalculationRequest(BaseModel):
     procedures: List[TreatmentProcedure]
     deductible_remaining: float
     annual_max_remaining: float
-    preventive_coverage: float  # e.g., 100.0 for 100%
-    basic_coverage: float  # e.g., 80.0 for 80%
-    major_coverage: float  # e.g., 50.0 for 50%
+    preventive_coverage: float
+    basic_coverage: float
+    major_coverage: float
 
 
 class ProcedureCostBreakdown(BaseModel):
@@ -213,18 +211,22 @@ def summarize_text(raw_text: str) -> BenefitsSummary:
     Core AI engine: given raw text (from textarea or PDF),
     call OpenAI and map to BenefitsSummary.
     """
-    completion = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": raw_text},
-        ],
-        response_format={"type": "json_object"},
-    )
+    try:
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": raw_text},
+            ],
+            response_format={"type": "json_object"},
+        )
 
-    raw_json = completion.choices[0].message.content
-    data = json.loads(raw_json)
-    return BenefitsSummary(**data)
+        raw_json = completion.choices[0].message.content
+        data = json.loads(raw_json)
+        return BenefitsSummary(**data)
+    except Exception as e:
+        print(f"Error in summarize_text: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"AI processing error: {str(e)}")
 
 
 def calculate_procedure_cost(
@@ -238,26 +240,17 @@ def calculate_procedure_cost(
     Returns: (breakdown, deductible_used)
     """
     
-    # Insurance typically allows 100% of fee for in-network
-    # For demo purposes, we'll use 100% of fee as allowed amount
     insurance_allowed = procedure.fee
     
-    # Determine if deductible applies
     deductible_applied = 0.0
     if deductible_applies and deductible_remaining > 0:
         deductible_applied = min(deductible_remaining, insurance_allowed)
     
-    # Amount subject to coinsurance (after deductible)
     amount_after_deductible = insurance_allowed - deductible_applied
-    
-    # Insurance pays their percentage of remaining amount
     insurance_pays = amount_after_deductible * (coverage_percentage / 100.0)
-    
-    # Patient pays deductible + their coinsurance percentage
     patient_coinsurance = amount_after_deductible * ((100.0 - coverage_percentage) / 100.0)
     patient_pays = deductible_applied + patient_coinsurance
     
-    # Add notes
     notes = []
     if deductible_applied > 0:
         notes.append(f"${deductible_applied:.2f} applied to deductible")
@@ -286,49 +279,91 @@ def calculate_procedure_cost(
 # ENDPOINTS
 # ============================================
 
-@app.get("/", response_class=FileResponse)
+@app.get("/")
+def root():
+    """Root endpoint - health check"""
+    return {
+        "status": "healthy",
+        "service": "Eligify API",
+        "version": "1.0.0",
+        "endpoints": {
+            "health": "/health",
+            "app": "/app",
+            "summarize_text": "/summarize",
+            "summarize_pdf": "/summarize-pdf",
+            "calculate_treatment": "/calculate-treatment",
+            "save_to_open_dental": "/save-to-open-dental"
+        }
+    }
+
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint for monitoring"""
+    return {"status": "healthy", "service": "Eligify API"}
+
+
+@app.get("/app", response_class=FileResponse)
 def serve_index():
-    return FileResponse("../frontend/index.html")
+    """Serve the frontend application"""
+    index_path = os.path.join(FRONTEND_DIR, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    else:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": "Frontend not found",
+                "message": "Please ensure frontend files are in the correct directory.",
+                "expected_path": FRONTEND_DIR
+            }
+        )
 
 
 @app.post("/summarize", response_model=BenefitsSummary)
 def summarize_benefits(req: BenefitsRequest):
+    """Extract benefits from pasted text"""
+    if not req.raw_text or not req.raw_text.strip():
+        raise HTTPException(status_code=400, detail="Please provide benefits text")
     return summarize_text(req.raw_text)
 
 
 @app.post("/summarize-pdf", response_model=BenefitsSummary)
 async def summarize_pdf(file: UploadFile = File(...)):
-    """
-    V2: PDF upload → extract text → reuse same AI engine.
-    """
+    """Extract benefits from uploaded PDF"""
+    
     if file.content_type not in ("application/pdf", "application/octet-stream"):
-        raise HTTPException(status_code=400, detail="Please upload a valid PDF file.")
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
-    pdf_bytes = await file.read()
+    try:
+        pdf_bytes = await file.read()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not read file: {str(e)}")
 
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-            pages_text: list[str] = []
+            pages_text = []
             for page in pdf.pages:
                 page_text = page.extract_text() or ""
                 if page_text.strip():
                     pages_text.append(page_text)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Could not read the PDF file.")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not parse PDF: {str(e)}")
 
     full_text = "\n\n".join(pages_text).strip()
 
     if not full_text:
-        raise HTTPException(status_code=400, detail="Could not extract any text from the PDF.")
+        raise HTTPException(
+            status_code=400,
+            detail="Could not extract text from PDF. Please ensure the PDF contains selectable text."
+        )
 
     return summarize_text(full_text)
 
 
 @app.post("/calculate-treatment", response_model=TreatmentCalculationResponse)
 def calculate_treatment(req: TreatmentCalculationRequest):
-    """
-    Calculate patient costs for a treatment plan based on insurance benefits.
-    """
+    """Calculate patient costs for treatment plan"""
     
     procedure_breakdowns = []
     total_dentist_fees = 0.0
@@ -339,10 +374,9 @@ def calculate_treatment(req: TreatmentCalculationRequest):
     deductible_remaining = req.deductible_remaining
     
     for procedure in req.procedures:
-        # Determine coverage percentage based on category
         if procedure.category.lower() == "preventive":
             coverage_pct = req.preventive_coverage
-            deductible_applies = False  # Preventive usually doesn't apply to deductible
+            deductible_applies = False
         elif procedure.category.lower() == "basic":
             coverage_pct = req.basic_coverage
             deductible_applies = True
@@ -353,7 +387,6 @@ def calculate_treatment(req: TreatmentCalculationRequest):
             coverage_pct = 0.0
             deductible_applies = False
         
-        # Calculate cost breakdown
         breakdown, deductible_used = calculate_procedure_cost(
             procedure=procedure,
             deductible_remaining=deductible_remaining,
@@ -363,19 +396,15 @@ def calculate_treatment(req: TreatmentCalculationRequest):
         
         procedure_breakdowns.append(breakdown)
         
-        # Update running totals
         total_dentist_fees += breakdown.dentist_fee
         total_insurance_pays += breakdown.insurance_pays
         total_patient_pays += breakdown.patient_pays
         total_deductible_used += deductible_used
         
-        # Update remaining deductible
         deductible_remaining -= deductible_used
     
-    # Calculate remaining annual max
     remaining_annual_max = req.annual_max_remaining - total_insurance_pays
     
-    # Generate summary
     summary = f"Total treatment cost: ${total_dentist_fees:.2f}. "
     summary += f"Insurance will pay: ${total_insurance_pays:.2f}. "
     summary += f"Patient responsibility: ${total_patient_pays:.2f}. "
@@ -399,11 +428,10 @@ def calculate_treatment(req: TreatmentCalculationRequest):
 @app.post("/save-to-open-dental", response_model=OpenDentalSaveResponse)
 def save_to_open_dental(req: OpenDentalSaveRequest):
     """
-    DEMO ENDPOINT: Simulates saving benefits data to Open Dental.
-    In production, this would actually write to Open Dental database.
+    DEMO ENDPOINT: Simulates saving benefits to Open Dental
+    In production, this would write to Open Dental database
     """
     
-    # Simulate what would be saved to Open Dental
     saved_fields = {
         "patient_name": req.patient_name,
         "plan_status": req.benefits_data.plan_status,
@@ -432,12 +460,6 @@ def save_to_open_dental(req: OpenDentalSaveRequest):
         "waiting_periods": req.benefits_data.waiting_periods or [],
     }
     
-    # In production, you would:
-    # 1. Connect to Open Dental MySQL database
-    # 2. Find the patient record by name/ID
-    # 3. Update the insplan, inssub, and benefit tables
-    # 4. Log the transaction
-    
     return OpenDentalSaveResponse(
         success=True,
         message=f"Successfully saved insurance benefits for {req.patient_name} to Open Dental",
@@ -445,7 +467,32 @@ def save_to_open_dental(req: OpenDentalSaveRequest):
     )
 
 
-@app.get("/health")
-def health_check():
-    """Simple health check endpoint"""
-    return {"status": "healthy", "service": "Eligify API"}
+# ============================================
+# ERROR HANDLERS
+# ============================================
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail}
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc):
+    print(f"Unexpected error: {str(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An unexpected error occurred. Please try again."}
+    )
+
+
+# ============================================
+# STARTUP
+# ============================================
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
