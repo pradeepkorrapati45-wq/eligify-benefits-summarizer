@@ -2,18 +2,19 @@
 // ELIGIFY - ENHANCED WITH TREATMENT CALCULATOR
 // ============================================
 
-// API Configuration - Automatically detects environment
+// API Configuration - Point to your backend on Render
 const API_URL = (() => {
   // Check if we're in local development
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
     return 'http://localhost:8000';
   }
   
-  // In production, use the same origin (backend serves frontend)
-  return window.location.origin;
+  // Production: Use your backend URL
+  return 'https://eligify-benefits-summarizer.onrender.com';
 })();
 
-console.log('API URL:', API_URL); // Debug log
+console.log('🚀 API URL:', API_URL); // Debug log
+console.log('📍 Current location:', window.location.origin); // Debug log
 
 // DOM Elements
 const summarizeBtn = document.getElementById("summarizeBtn");
