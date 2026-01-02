@@ -2,11 +2,18 @@
 // ELIGIFY - ENHANCED WITH TREATMENT CALCULATOR
 // ============================================
 
-// API Configuration - Update this with your Render backend URL
-const API_URL = window.location.hostname === 'localhost' ||
-                window.location.hostname === "127.0.0.1"
-  ? 'http://localhost:8000'  // Local development
-  : 'https://eligify-backend.onrender.com';  // Production - UPDATE THIS!
+// API Configuration - Automatically detects environment
+const API_URL = (() => {
+  // Check if we're in local development
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'http://localhost:8000';
+  }
+  
+  // In production, use the same origin (backend serves frontend)
+  return window.location.origin;
+})();
+
+console.log('API URL:', API_URL); // Debug log
 
 // DOM Elements
 const summarizeBtn = document.getElementById("summarizeBtn");
@@ -575,26 +582,33 @@ async function processPdfFile(file) {
     const formData = new FormData();
     formData.append("file", file);
 
+    console.log('Uploading to:', `${API_URL}/summarize-pdf`); // Debug
+
     const res = await fetch(`${API_URL}/summarize-pdf`, {
       method: "POST",
       body: formData
     });
 
+    console.log('Response status:', res.status); // Debug
+
     if (!res.ok) {
       const errText = await res.text();
-      showErrorMessage("Could not summarize this PDF.", res, errText, "pdf");
+      console.error('Error response:', errText); // Debug
+      showErrorMessage(`Server error (${res.status}): Could not process PDF`, res, errText, "pdf");
       prettyOutput.textContent = "Failed to generate summary from PDF.";
       jsonOutput.textContent = errText;
       return;
     }
 
     const data = await res.json();
+    console.log('Success! Data:', data); // Debug
     renderResult(data, "pdf");
   } catch (err) {
-    statusTextPdf.textContent = "❌ Request failed. Check your connection.";
+    console.error('Network error:', err); // Debug
+    statusTextPdf.textContent = "❌ Network error. Check your connection or backend URL.";
     statusTextPdf.className = "status error";
     prettyOutput.textContent = "Failed to generate summary from PDF.";
-    jsonOutput.textContent = String(err);
+    jsonOutput.textContent = `Error: ${err.message}\n\nAPI URL: ${API_URL}\nCheck console for details.`;
     console.error(err);
   } finally {
     setLoading(false, "pdf");
