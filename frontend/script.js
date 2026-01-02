@@ -2,6 +2,12 @@
 // ELIGIFY - ENHANCED WITH TREATMENT CALCULATOR
 // ============================================
 
+// API Configuration - Update this with your Render backend URL
+const API_URL = window.location.hostname === 'localhost' ||
+                window.location.hostname === "127.0.0.1"
+  ? 'http://localhost:8000'  // Local development
+  : 'https://eligify-backend.onrender.com';  // Production - UPDATE THIS!
+
 // DOM Elements
 const summarizeBtn = document.getElementById("summarizeBtn");
 const input = document.getElementById("inputText");
@@ -289,7 +295,7 @@ async function calculateTreatmentCost() {
   };
 
   try {
-    const res = await fetch("/calculate-treatment", {
+    const res = await fetch(`${API_URL}/calculate-treatment`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestData)
@@ -434,7 +440,7 @@ async function saveToOpenDental() {
   }
 
   try {
-    const res = await fetch("/save-to-open-dental", {
+    const res = await fetch(`${API_URL}/save-to-open-dental`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -569,7 +575,7 @@ async function processPdfFile(file) {
     const formData = new FormData();
     formData.append("file", file);
 
-    const res = await fetch("/summarize-pdf", {
+    const res = await fetch(`${API_URL}/summarize-pdf`, {
       method: "POST",
       body: formData
     });
@@ -622,7 +628,7 @@ summarizeBtn.addEventListener("click", async () => {
   treatmentCalculator.style.display = "none";
 
   try {
-    const res = await fetch("/summarize", {
+    const res = await fetch(`${API_URL}/summarize`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ raw_text: rawText })
