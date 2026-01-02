@@ -15,7 +15,14 @@ import pdfplumber
 
 load_dotenv()
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Initialize OpenAI client - compatible with both old and new versions
+try:
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+except TypeError:
+    # Fallback for older OpenAI versions
+    import openai
+    openai.api_key = os.getenv("OPENAI_API_KEY")
+    client = None
 
 app = FastAPI(title="Eligify API", version="1.0.0")
 
@@ -30,8 +37,13 @@ app.add_middleware(
 
 # Serve static files - works for both local dev and production
 FRONTEND_DIR = "../frontend" if os.path.exists("../frontend") else "./frontend"
+
+# Mount static files BEFORE defining routes
 if os.path.exists(FRONTEND_DIR):
     app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+    print(f"✅ Serving static files from: {FRONTEND_DIR}")
+else:
+    print(f"⚠️ Frontend directory not found: {FRONTEND_DIR}")
 
 
 # ============================================
@@ -212,16 +224,30 @@ def summarize_text(raw_text: str) -> BenefitsSummary:
     call OpenAI and map to BenefitsSummary.
     """
     try:
-        completion = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": raw_text},
-            ],
-            response_format={"type": "json_object"},
-        )
-
-        raw_json = completion.choices[0].message.content
+        if client:
+            # New OpenAI client (v1.0+)
+            completion = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": raw_text},
+                ],
+                response_format={"type": "json_object"},
+            )
+            raw_json = completion.choices[0].message.content
+        else:
+            # Old OpenAI library (v0.x)
+            import openai
+            completion = openai.ChatCompletion.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": raw_text},
+                ],
+                response_format={"type": "json_object"},
+            )
+            raw_json = completion.choices[0].message.content
+        
         data = json.loads(raw_json)
         return BenefitsSummary(**data)
     except Exception as e:
