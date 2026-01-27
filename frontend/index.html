@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Eligify – AI-Powered Benefits Summarizer</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div class="container">
+
+    <!-- HEADER -->
+    <header class="header-row">
+      <div>
+        <h1>Eligify – Benefits Summarizer</h1>
+        <p class="subtitle">Transform complex insurance documents into clear summaries + calculate treatment costs instantly</p>
+      </div>
+      <span class="badge badge-dev">Demo Mode</span>
+    </header>
+
+    <!-- TEXT INPUT -->
+    <section>
+      <label for="inputText">📝 Paste insurance benefits text:</label>
+      <textarea 
+        id="inputText" 
+        placeholder="Paste benefits text here... (or upload a PDF below)"
+      ></textarea>
+
+      <div class="actions">
+        <button id="summarizeBtn">⚡ Summarize Benefits</button>
+      </div>
+      
+      <!-- Status for text input -->
+      <div class="status-container">
+        <div id="loaderText" class="spinner hidden"></div>
+        <span id="statusTextInput" class="status"></span>
+      </div>
+    </section>
+
+    <!-- DIVIDER -->
+    <div class="or-divider"><span>OR</span></div>
+
+    <!-- PDF UPLOAD -->
+    <section class="pdf-upload">
+      <label for="pdfInput">📄 Upload a benefits PDF:</label>
+      <div class="pdf-upload-row">
+        <input type="file" id="pdfInput" accept="application/pdf" />
+        <button id="uploadPdfBtn">📤 Upload PDF & Summarize</button>
+      </div>
+
+      <!-- Status for PDF upload - RIGHT BELOW BUTTON -->
+      <div class="status-container">
+        <div id="loaderPdf" class="spinner hidden"></div>
+        <span id="statusTextPdf" class="status"></span>
+      </div>
+
+      <div id="fileInfo" class="file-info">No file selected</div>
+      
+      <div id="dropZone" class="drop-zone">
+        🎯 Drag & drop a benefits PDF here, or use the button above
+      </div>
+    </section>
+
+    <!-- RESULTS SECTION -->
+    <section class="results" id="resultsSection">
+      
+      <!-- Success Banner -->
+      <div id="successBanner" class="success-banner">
+        <span class="icon">✅</span>
+        <div class="content">
+          <strong>Benefits Extracted Successfully!</strong>
+          <p class="meta">
+            Processed in <span id="processTime">2.3</span>s · 
+            <span id="fieldsExtracted">12</span> fields extracted
+          </p>
+        </div>
+        <div class="export-buttons">
+          <button class="export-btn" onclick="copySummary()">📋 Copy</button>
+          <button class="export-btn" onclick="copyJSON()">💻 JSON</button>
+          <button class="export-btn btn-primary" onclick="showOpenDentalModal()">
+            💾 Save to Open Dental
+          </button>
+        </div>
+      </div>
+
+      <!-- Stats Grid -->
+      <div id="statsGrid" class="stats-grid" style="display: none;">
+        <div class="stat-card">
+          <div class="stat-card-header">💰 Deductible</div>
+          <div class="stat-card-body">
+            <div class="stat-value">$<span id="deductRemaining">--</span></div>
+            <div class="stat-label">of $<span id="deductTotal">--</span> remaining</div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="deductProgress" style="width: 0%"></div>
+            </div>
+            <div class="progress-text"><span id="deductPercent">0</span>% met</div>
+          </div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-card-header">📊 Annual Maximum</div>
+          <div class="stat-card-body">
+            <div class="stat-value">$<span id="maxRemaining">--</span></div>
+            <div class="stat-label">of $<span id="maxTotal">--</span> remaining</div>
+            <div class="progress-bar">
+              <div class="progress-fill success" id="maxProgress" style="width: 0%"></div>
+            </div>
+            <div class="progress-text">$<span id="maxUsed">0</span> used</div>
+          </div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-card-header">🦷 Coverage Levels</div>
+          <div class="stat-card-body coverage-badges">
+            <div class="coverage-badge badge-preventive">
+              Preventive: <strong><span id="coveragePreventive">--</span>%</strong>
+            </div>
+            <div class="coverage-badge badge-basic">
+              Basic: <strong><span id="coverageBasic">--</span>%</strong>
+            </div>
+            <div class="coverage-badge badge-major">
+              Major: <strong><span id="coverageMajor">--</span>%</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TREATMENT COST CALCULATOR -->
+      <div id="treatmentCalculator" class="treatment-calculator" style="display: none;">
+        <div class="calculator-header">
+          <h2>💊 Treatment Cost Calculator</h2>
+          <p class="subtitle">Calculate patient responsibility for treatment plans</p>
+        </div>
+
+        <div class="calculator-body">
+          <div class="procedure-selector">
+            <label>Add Procedures to Treatment Plan:</label>
+            <div class="quick-add-buttons">
+              <button onclick="addProcedure('D1110', 'Prophylaxis (Cleaning)', 95, 'preventive')">
+                + Cleaning ($95)
+              </button>
+              <button onclick="addProcedure('D2140', 'Amalgam Filling - 1 Surface', 185, 'basic')">
+                + Filling ($185)
+              </button>
+              <button onclick="addProcedure('D2740', 'Crown - Porcelain/Ceramic', 1200, 'major')">
+                + Crown ($1,200)
+              </button>
+              <button onclick="addProcedure('D3310', 'Root Canal - Anterior', 850, 'major')">
+                + Root Canal ($850)
+              </button>
+              <button onclick="addProcedure('D4341', 'Periodontal Scaling - Per Quad', 220, 'basic')">
+                + Perio Scaling ($220)
+              </button>
+            </div>
+          </div>
+
+          <div id="selectedProcedures" class="selected-procedures">
+            <h3>Treatment Plan:</h3>
+            <div id="proceduresList" class="procedures-list">
+              <p class="text-muted">No procedures added yet. Click buttons above to add procedures.</p>
+            </div>
+          </div>
+
+          <div class="calculator-actions">
+            <button id="calculateBtn" class="btn-calculate" onclick="calculateTreatmentCost()">
+              🧮 Calculate Patient Cost
+            </button>
+            <button class="btn-secondary" onclick="clearProcedures()">
+              🗑️ Clear All
+            </button>
+          </div>
+
+          <!-- Results Display -->
+          <div id="calculationResults" class="calculation-results" style="display: none;">
+            <div class="results-header">
+              <h3>💰 Cost Breakdown</h3>
+            </div>
+            
+            <div id="procedureBreakdowns" class="procedure-breakdowns">
+              <!-- Populated by JS -->
+            </div>
+
+            <div class="totals-section">
+              <div class="total-row">
+                <span>Total Treatment Cost:</span>
+                <span class="amount">$<span id="totalFees">0.00</span></span>
+              </div>
+              <div class="total-row highlight-insurance">
+                <span>Insurance Pays:</span>
+                <span class="amount">$<span id="totalInsurance">0.00</span></span>
+              </div>
+              <div class="total-row highlight-patient">
+                <span><strong>Patient Pays:</strong></span>
+                <span class="amount"><strong>$<span id="totalPatient">0.00</span></strong></span>
+              </div>
+            </div>
+
+            <div class="summary-box">
+              <p id="calculationSummary"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Details Section -->
+      <div id="detailsSection" class="details-section" style="display: none;">
+        <div class="detail-card">
+          <h3>📅 Frequency Limitations</h3>
+          <ul class="detail-list" id="frequencyList">
+            <li style="text-align: center; color: var(--gray-500);">No limitations specified</li>
+          </ul>
+        </div>
+
+        <div class="detail-card">
+          <h3>⏰ Waiting Periods</h3>
+          <ul class="detail-list" id="waitingPeriodsList">
+            <li style="text-align: center; color: var(--gray-500);">No waiting periods found</li>
+          </ul>
+        </div>
+
+        <div class="detail-card">
+          <h3>📝 Important Notes</h3>
+          <ul class="detail-list" id="notesList">
+            <li style="text-align: center; color: var(--gray-500);">No additional notes</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Original Display (Summary + JSON) -->
+      <div class="results-grid">
+        <div class="card">
+          <div class="card-header">
+            <h2>📄 Summary</h2>
+            <div class="copy-wrapper">
+              <span id="copyStatus" class="copy-status hidden">✓ Copied!</span>
+              <button id="copySummaryBtn" class="secondary-btn">Copy</button>
+            </div>
+          </div>
+          <pre id="prettyOutput" class="summary-text">No usable benefits information was extracted.</pre>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2>💻 Raw JSON</h2>
+            <button id="toggleJsonBtn" class="secondary-btn">Hide</button>
+          </div>
+          <pre id="output">{}</pre>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- OPEN DENTAL SAVE MODAL -->
+    <div id="openDentalModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>💾 Save to Open Dental</h2>
+          <button class="close-btn" onclick="closeOpenDentalModal()">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-subtitle">This will save the extracted benefits directly to the patient's insurance record in Open Dental.</p>
+          
+          <label for="patientName">Patient Name:</label>
+          <input type="text" id="patientName" placeholder="Enter patient name (e.g., John Smith)" value="John Smith" />
+
+          <div class="save-preview">
+            <h4>What will be saved:</h4>
+            <ul id="savePreviewList" class="save-preview-list">
+              <!-- Populated by JS -->
+            </ul>
+          </div>
+
+          <div class="modal-actions">
+            <button class="btn-cancel" onclick="closeOpenDentalModal()">Cancel</button>
+            <button class="btn-save" onclick="saveToOpenDental()">
+              ✅ Save to Open Dental
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="./script.js"></script>
+</body>
+</html>
